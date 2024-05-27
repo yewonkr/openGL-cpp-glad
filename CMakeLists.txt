@@ -13,11 +13,11 @@ set(WINDOW_HEIGHT 480)
 project(${PROJECT_NAME})
 add_executable(${PROJECT_NAME} 
     # src/main.cpp
-    # src/mainRotatingCube.cpp
-    # src/mainObject-2.cpp
-    # src/mainImGui.cpp
-    # src/mainTexture.cpp
-    # src/mainColoredTriangle.cpp
+    # src/RotatingCube.cpp
+    # src/Object-2.cpp
+    # src/ImGui.cpp
+    # src/Texture.cpp
+    # src/ColoredTriangle.cpp
     src/drawSinglePoint.cpp
     # src/basicWindow.cpp
 )
