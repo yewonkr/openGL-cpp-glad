@@ -549,12 +549,12 @@ bool Context::Init() {
     //     image->GetWidth(), image->GetHeight(), image->GetChannelCount());
 
     auto image = Image::Create(512, 512);
-    image->SetCheckImage(32, 32);
+    image->SetCheckImage(64, 64);
 
     m_texture = Texture::CreateFromImage(image.get());
 
   
-    auto image2 = Image::Load("./image/body.png");
+    auto image2 = Image::Load("./image/face.png");
     m_texture2 = Texture::CreateFromImage(image2.get());
 
     glActiveTexture(GL_TEXTURE0);

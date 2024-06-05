@@ -325,8 +325,8 @@ bool Context::Init() {
     };
 
     uint32_t indices[] = { // GL_UNSIGNED_INT
-        1, 3, 2, // first triangle
-        1, 3, 0, // second triangle
+        1, 0, 2, // first triangle
+        // 1, 3, 0, // second triangle
         // 2, 6, 5,
     };
 
@@ -341,7 +341,18 @@ bool Context::Init() {
         GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW,
         indices, sizeof(uint32_t) * 6);
 
+// ***********************************************
 
+    // unsigned int id = glCreateShader(type); //셰이더 객체 생성(마찬가지)
+	// const char* src = source.c_str();
+	// glShaderSource(id, // 셰이더의 소스 코드 명시, 소스 코드를 명시할 셰이더 객체 id
+	// 				1, // 몇 개의 소스 코드를 명시할 것인지
+	// 				&src, // 실제 소스 코드가 들어있는 문자열의 주소값
+	// 				nullptr); // 해당 문자열 전체를 사용할 경우 nullptr입력, 아니라면 길이 명시
+	// glCompileShader(id); // id에 해당하는 셰이더 컴파일
+
+
+// ****************************************************
     ShaderPtr vertShader = Shader::CreateFromFile("./shader/per_vertex_color.vs", GL_VERTEX_SHADER);
     ShaderPtr fragShader = Shader::CreateFromFile("./shader/per_vertex_color.fs", GL_FRAGMENT_SHADER);
     if (!vertShader || !fragShader)

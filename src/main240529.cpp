@@ -46,6 +46,29 @@ optional<string> LoadTextFile(const string& filename) {
     return text.str();
 }
 
+glm::vec3 GetAttenuationCoeff(float distance) {
+    const auto linear_coeff = glm::vec4(
+        8.4523112e-05,
+        4.4712582e+00,
+        -1.8516388e+00,
+        3.3955811e+01
+    );
+    const auto quad_coeff = glm::vec4(
+        -7.6103583e-04,
+        9.0120201e+00,
+        -1.1618500e+01,
+        1.0000464e+02
+    );
+
+    float kc = 1.0f;
+    float d = 1.0f / distance;
+    auto dvec = glm::vec4(1.0f, d, d*d, d*d*d);
+    float kl = glm::dot(linear_coeff, dvec);
+    float kq = glm::dot(quad_coeff, dvec);
+    
+    return glm::vec3(kc, glm::max(kl, 0.0f), glm::max(kq*kq, 0.0f));
+}
+
 
 CLASS_PTR(Shader);
 class Shader {
@@ -493,6 +516,8 @@ private:
     bool Init();
 
     ProgramUPtr m_program;
+    ProgramUPtr m_simpleProgram;
+
 
     int m_width {WINDOW_WIDTH};
     int m_height {WINDOW_HEIGHT};
@@ -523,14 +548,15 @@ private:
     float m_cameraYaw { 0.0f };
 
     glm::vec3 m_cameraFront { glm::vec3(0.0f, 0.0f, -1.0f) };
-    glm::vec3 m_cameraPos { glm::vec3(0.0f, 0.0f, 10.0f) };
+    glm::vec3 m_cameraPos { glm::vec3(0.0f, 0.0f, 7.0f) };
     glm::vec3 m_cameraUp { glm::vec3(0.0f, 1.0f, 0.0f) };
 
     // light parameter
     struct Light {
         glm::vec3 position { glm::vec3(2.0f, 2.0f, 2.0f) };
-        glm::vec3 direction { glm::vec3(-1.0f, -1.0f, -1.0f) };
+        glm::vec3 direction { glm::vec3(-0.2f, -1.0f, -0.3f) };
         glm::vec2 cutoff { glm::vec2(20.0f, 5.0f) };
+        // float cutoff { 20.0f };
         float distance { 32.0f };
         glm::vec3 ambient { glm::vec3(0.1f, 0.1f, 0.1f) };
         glm::vec3 diffuse { glm::vec3(0.8f, 0.8f, 0.8f) };
@@ -552,9 +578,11 @@ private:
         // glm::vec3 direction { glm::vec3(-1.0f, -1.0f, -1.0f) };
         // glm::vec2 cutoff { glm::vec2(20.0f, 5.0f) };
         // float distance { 32.0f };
-        glm::vec3 ambient { glm::vec3(0.1f, 0.5f, 0.3f) };
-        glm::vec3 diffuse { glm::vec3(0.8f, 0.5f, 0.3f) };
-        glm::vec3 specular { glm::vec3(0.5f, 0.5f, 0.5f) };
+        TextureUPtr diffuse;
+        TextureUPtr specular;
+        // glm::vec3 ambient { glm::vec3(0.1f, 0.5f, 0.3f) };
+        // glm::vec3 diffuse { glm::vec3(0.8f, 0.5f, 0.3f) };
+        // glm::vec3 specular { glm::vec3(0.5f, 0.5f, 0.5f) };
         float shininess { 32.0f };
     };
     Material m_material;
@@ -666,23 +694,20 @@ void Context::Render() {
 
         if (ImGui::CollapsingHeader("light", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::DragFloat3("l.position", glm::value_ptr(m_light.position), 0.01f);
-            // ImGui::DragFloat3("l.direction", glm::value_ptr(m_light.direction), 0.01f);
-            // ImGui::DragFloat2("l.cutoff", glm::value_ptr(m_light.cutoff), 0.1f, 0.0f, 180.0f);
-            // ImGui::DragFloat("l.distance", &m_light.distance, 0.1f, 0.0f, 1000.0f);
+            ImGui::DragFloat3("l.direction", glm::value_ptr(m_light.direction), 0.01f);
+            // ImGui::DragFloat2("l.cutoff", &m_light.cutoff, 0.1f, 0.0f, 180.0f);
+            ImGui::DragFloat2("l.cutoff", glm::value_ptr(m_light.cutoff), 0.1f, 0.0f, 180.0f);
+            ImGui::DragFloat("l.distance", &m_light.distance, 0.5f, 0.0f, 1000.0f);
             ImGui::ColorEdit3("l.ambient", glm::value_ptr(m_light.ambient));
             ImGui::ColorEdit3("l.diffuse", glm::value_ptr(m_light.diffuse));
             ImGui::ColorEdit3("l.specular", glm::value_ptr(m_light.specular));
         }
 
         // material
-        // if (ImGui::CollapsingHeader("material", ImGuiTreeNodeFlags_DefaultOpen)) {
-        //     ImGui::DragFloat("m.shininess", &m_material.shininess, 1.0f, 1.0f, 256.0f);
-        // }
-
         if (ImGui::CollapsingHeader("material", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::ColorEdit3("m.ambient", glm::value_ptr(m_light.ambient));
-            ImGui::ColorEdit3("m.diffuse", glm::value_ptr(m_light.diffuse));
-            ImGui::ColorEdit3("m.specular", glm::value_ptr(m_light.specular));
+            // ImGui::ColorEdit3("m.ambient", glm::value_ptr(m_light.ambient));
+            // ImGui::ColorEdit3("m.diffuse", glm::value_ptr(m_light.diffuse));
+            // ImGui::ColorEdit3("m.specular", glm::value_ptr(m_light.specular));
             ImGui::DragFloat("m.shininess", &m_material.shininess, 1.0f, 1.0f, 256.0f);
         }
     }
@@ -695,15 +720,15 @@ void Context::Render() {
 
     std::vector<glm::vec3> cubePositions = {
         glm::vec3( 0.0f, 0.0f, 0.0f),
-        // glm::vec3( 2.0f, 5.0f, -15.0f),
-        // glm::vec3(-1.5f, -2.2f, -2.5f),
-        // glm::vec3(-3.8f, -2.0f, -12.3f),
-        // glm::vec3( 2.4f, -0.4f, -3.5f),
-        // glm::vec3(-1.7f, 3.0f, -7.5f),
-        // glm::vec3( 1.3f, -2.0f, -2.5f),
-        // glm::vec3( 1.5f, 2.0f, -2.5f),
-        // glm::vec3( 1.5f, 0.2f, -1.5f),
-        // glm::vec3(-1.3f, 1.0f, -1.5f),
+        glm::vec3( 2.0f, 5.0f, -15.0f),
+        glm::vec3(-1.5f, -2.2f, -2.5f),
+        glm::vec3(-3.8f, -2.0f, -12.3f),
+        glm::vec3( 2.4f, -0.4f, -3.5f),
+        glm::vec3(-1.7f, 3.0f, -7.5f),
+        glm::vec3( 1.3f, -2.0f, -2.5f),
+        glm::vec3( 1.5f, 2.0f, -2.5f),
+        glm::vec3( 1.5f, 0.2f, -1.5f),
+        glm::vec3(-1.3f, 1.0f, -1.5f),
     };
 
     m_program->Use();
@@ -724,26 +749,31 @@ void Context::Render() {
         // (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT, 0.01f, 10.0f);
         (float)m_width / (float)m_height, 0.01f, 20.0f);
     // auto view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
-    auto model = glm::rotate(glm::mat4(1.0f), glm::radians((float)glfwGetTime() * 60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    // auto model = glm::rotate(glm::mat4(1.0f), glm::radians((float)glfwGetTime() * 60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    auto model = glm::rotate(glm::mat4(1.0f), glm::radians(60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
     auto transform = projection * view * model;
     m_program->SetUniform("transform", transform);
 
-    // drawing a light emmiting object - 
+    // drawing a light emmiting object - didn;;t show -- fix it
     auto lightModelTransform = glm::translate(glm::mat4(1.0), m_lightPos) *
-        glm::scale(glm::mat4(1.0), glm::vec3(0.3f));
+        glm::scale(glm::mat4(1.0), glm::vec3(0.1f));
         
     m_program->Use();
     // m_program->SetUniform("lightPos", m_lightPos);
     // m_program->SetUniform("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
     // m_program->SetUniform("objectColor", glm::vec3(1.0f, 1.0f, 1.0f));
     // m_program->SetUniform("ambientStrenght", 1.0f);
+/*    
     m_program->SetUniform("light.position", m_light.position);
     m_program->SetUniform("light.ambient", glm::vec3(1.0f));
     m_program->SetUniform("material.ambient", glm::vec3(1.0f));
 
     m_program->SetUniform("transform", projection * view * lightModelTransform);
     m_program->SetUniform("modelTransform", lightModelTransform);
+*/    
+    m_simpleProgram->SetUniform("color", glm::vec4(m_light.ambient + m_light.diffuse, 1.0f));
+    m_simpleProgram->SetUniform("transform", projection * view * lightModelTransform);
     
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 
@@ -758,15 +788,28 @@ void Context::Render() {
     // m_program->SetUniform("specularShininess", m_specularShininess);
 
     m_program->SetUniform("light.position", m_light.position);
+    m_program->SetUniform("light.attenuation", GetAttenuationCoeff(m_light.distance));
+    // m_program->SetUniform("light.direction", m_light.direction);
     m_program->SetUniform("light.direction", m_light.direction);
+    // m_program->SetUniform("light.cutoff", cosf(glm::radians(m_light.cutoff)));
+    m_program->SetUniform("light.cutoff", glm::vec2(
+        cosf(glm::radians(m_light.cutoff[0])),
+        cosf(glm::radians(m_light.cutoff[0] + m_light.cutoff[1]))));
     m_program->SetUniform("light.ambient", m_light.ambient);
     m_program->SetUniform("light.diffuse", m_light.diffuse);
     m_program->SetUniform("light.specular", m_light.specular);
 
-    m_program->SetUniform("material.ambient", m_material.ambient);
-    m_program->SetUniform("material.diffuse", m_material.diffuse);
-    m_program->SetUniform("material.specular", m_material.specular);
+    // m_program->SetUniform("material.ambient", m_material.ambient);
+    // m_program->SetUniform("material.diffuse", m_material.diffuse);
+    m_program->SetUniform("material.diffuse", 0);   // slut number 0
+    // m_program->SetUniform("material.specular", m_material.specular);
+    m_program->SetUniform("material.specular", 1);
     m_program->SetUniform("material.shininess", m_material.shininess);
+
+    glActiveTexture(GL_TEXTURE0);
+    m_material.diffuse->Bind();
+    glActiveTexture(GL_TEXTURE1);
+    m_material.specular->Bind();
 
 
     for (size_t i = 0; i < cubePositions.size(); i++){
@@ -792,6 +835,49 @@ bool Context::Init() {
 
     // glEnable(GL_CULL_FACE);
 
+    // float vertices[] = {     // pos.xyz, normal.xyz, texcoord.uv
+    //      0.5f,  0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f,
+    //      0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+    //     -0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+    //     -0.5f,  0.5f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+    // };
+
+    // uint32_t indices[] = { // GL_UNSIGNED_INT
+    //     1, 3, 2, // first triangle
+    //     1, 3, 0, // second triangle
+    // };
+
+    // float vertices[] = {        // drawing a cube
+    //     -0.5f, -0.5f, -0.5f, 0.0f, 0.0f,
+    //      0.5f, -0.5f, -0.5f, 1.0f, 0.0f,
+    //      0.5f,  0.5f, -0.5f, 1.0f, 1.0f,
+    //     -0.5f,  0.5f, -0.5f, 0.0f, 1.0f,
+
+    //     -0.5f, -0.5f,  0.5f, 0.0f, 0.0f,
+    //      0.5f, -0.5f,  0.5f, 1.0f, 0.0f,
+    //      0.5f,  0.5f,  0.5f, 1.0f, 1.0f,
+    //     -0.5f,  0.5f,  0.5f, 0.0f, 1.0f,
+
+    //     -0.5f,  0.5f,  0.5f, 1.0f, 0.0f,
+    //     -0.5f,  0.5f, -0.5f, 1.0f, 1.0f,
+    //     -0.5f, -0.5f, -0.5f, 0.0f, 1.0f,
+    //     -0.5f, -0.5f,  0.5f, 0.0f, 0.0f,
+
+    //      0.5f,  0.5f,  0.5f, 1.0f, 0.0f,
+    //      0.5f,  0.5f, -0.5f, 1.0f, 1.0f,
+    //      0.5f, -0.5f, -0.5f, 0.0f, 1.0f,
+    //      0.5f, -0.5f,  0.5f, 0.0f, 0.0f,
+
+    //     -0.5f, -0.5f, -0.5f, 0.0f, 1.0f,
+    //      0.5f, -0.5f, -0.5f, 1.0f, 1.0f,
+    //      0.5f, -0.5f,  0.5f, 1.0f, 0.0f,
+    //     -0.5f, -0.5f,  0.5f, 0.0f, 0.0f,
+
+    //     -0.5f,  0.5f, -0.5f, 0.0f, 1.0f,
+    //      0.5f,  0.5f, -0.5f, 1.0f, 1.0f,
+    //      0.5f,  0.5f,  0.5f, 1.0f, 0.0f,
+    //     -0.5f,  0.5f,  0.5f, 0.0f, 0.0f,
+    // };
 
     float vertices[] = {    // pos.xyz, normal.xyz, texcoord.uv
         -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 0.0f, 0.0f,
@@ -852,17 +938,29 @@ bool Context::Init() {
         // indices, sizeof(uint32_t) * 6);
         indices, sizeof(uint32_t) * 36);
 
-    ShaderPtr vertShader = Shader::CreateFromFile("./shader/lighting-1.vs", GL_VERTEX_SHADER);
-    ShaderPtr fragShader = Shader::CreateFromFile("./shader/lighting-1b.fs", GL_FRAGMENT_SHADER);
-    if (!vertShader || !fragShader)
-        return false;
-    SPDLOG_INFO("vertex shader id: {}", vertShader->Get());
-    SPDLOG_INFO("fragment shader id: {}", fragShader->Get());
+    // shader loading
+    // ShaderPtr vertShader = Shader::CreateFromFile("./shader/lighting-1.vs", GL_VERTEX_SHADER);
+    // ShaderPtr fragShader = Shader::CreateFromFile("./shader/lighting-1.fs", GL_FRAGMENT_SHADER);
+    // if (!vertShader || !fragShader)
+    //     return false;
+    // SPDLOG_INFO("vertex shader id: {}", vertShader->Get());
+    // SPDLOG_INFO("fragment shader id: {}", fragShader->Get());
 
-    m_program = Program::Create({fragShader, vertShader});
+    // m_program = Program::Create({fragShader, vertShader});
+    // if (!m_program)
+    //     return false;
+    // SPDLOG_INFO("program id: {}", m_program->Get());
+
+    m_simpleProgram = Program::Create("./shader/simple.vs", "./shader/simple.fs");
+    if (!m_simpleProgram)
+        return false;
+    SPDLOG_INFO("simple program id: {}", m_simpleProgram->Get());    
+
+    // m_program = Program::Create("./shader/lighting-1.vs", "./shader/lighting-1.fs");
+    m_program = Program::Create("./shader/lighting-3.vs", "./shader/lighting-3.fs");
     if (!m_program)
         return false;
-    SPDLOG_INFO("program id: {}", m_program->Get());
+    SPDLOG_INFO("program id: {}", m_program->Get());  
 
     glClearColor(0.1f, 0.2f, 0.3f, 0.0f);
 
@@ -877,10 +975,14 @@ bool Context::Init() {
     image->SetCheckImage(64, 64);
 
     m_texture = Texture::CreateFromImage(image.get());
-
+    // m_material.specular = Texture::CreateFromImage(image.get());
   
-    auto image2 = Image::Load("./image/face-4.jpg");
+    auto image2 = Image::Load("./image/face-3.jpg");
     m_texture2 = Texture::CreateFromImage(image2.get());
+
+    m_material.diffuse = Texture::CreateFromImage(Image::Load("./image/face-4.jpg").get());
+    // m_material.specular = Texture::CreateFromImage(Image::Load("./image/metal_sp.png").get());
+    m_material.specular = Texture::CreateFromImage(image.get());
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_texture->Get());

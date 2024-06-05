@@ -538,7 +538,7 @@ bool Context::Init() {
     glClearColor(0.1f, 0.2f, 0.3f, 0.0f);
 
 
-    auto image = Image::Load("./image/body.png");
+    auto image = Image::Load("./image/face.png");
     if (!image) 
         return false;
     SPDLOG_INFO("image: {}x{}, {} channels",

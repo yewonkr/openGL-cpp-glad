@@ -33,6 +33,8 @@ using klassName ## UPtr = std::unique_ptr<klassName>; \
 using klassName ## Ptr = std::shared_ptr<klassName>; \
 using klassName ## WPtr = std::weak_ptr<klassName>;
 
+
+
 // optional is not to assign a memory for the empty file
 optional<string> LoadTextFile(const string& filename) {
     ifstream fin(filename);
@@ -45,6 +47,36 @@ optional<string> LoadTextFile(const string& filename) {
     text << fin.rdbuf();
     return text.str();
 }
+
+glm::vec3 GetAttenuationCoeff(float distance) {
+    const auto linear_coeff = glm::vec4(
+        8.4523112e-05,
+        4.4712582e+00,
+        -1.8516388e+00,
+        3.3955811e+01
+    );
+    const auto quad_coeff = glm::vec4(
+        -7.6103583e-04,
+        9.0120201e+00,
+        -1.1618500e+01,
+        1.0000464e+02
+    );
+
+    float kc = 1.0f;
+    float d = 1.0f / distance;
+    auto dvec = glm::vec4(1.0f, d, d*d, d*d*d);
+    float kl = glm::dot(linear_coeff, dvec);
+    float kq = glm::dot(quad_coeff, dvec);
+    
+    return glm::vec3(kc, glm::max(kl, 0.0f), glm::max(kq*kq, 0.0f));
+}
+
+struct Vertex {
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 texCoord;
+};
+
 
 
 CLASS_PTR(Shader);
@@ -207,29 +239,37 @@ void Program::SetUniform(const std::string& name, const glm::vec4& value) const 
 CLASS_PTR(Buffer)
 class Buffer {
 public:
-    static BufferUPtr CreateWithData(
-        uint32_t bufferType, uint32_t usage,
-        const void* data, size_t dataSize);
+    static BufferUPtr CreateWithData(uint32_t bufferType, uint32_t usage,
+        // const void* data, size_t dataSize);
+        const void* data, size_t stride, size_t count);
     ~Buffer();
     uint32_t Get() const { return m_buffer; }
     void Bind() const;
+
+    size_t GetStride() const { return m_stride; }
+    size_t GetCount() const { return m_count; }
 
 private:
     Buffer() {}
     bool Init(
         uint32_t bufferType, uint32_t usage,
-        const void* data, size_t dataSize);
+        // const void* data, size_t dataSize);
+        const void* data, size_t stride, size_t count);
     uint32_t m_buffer { 0 };
     uint32_t m_bufferType { 0 };
     uint32_t m_usage { 0 };
+
+    size_t m_stride { 0 };
+    size_t m_count { 0 };
 };
 
-BufferUPtr Buffer::CreateWithData(
-    uint32_t bufferType, uint32_t usage,
-    const void* data, size_t dataSize) {
+BufferUPtr Buffer::CreateWithData( uint32_t bufferType, uint32_t usage,
+    // const void* data, size_t dataSize) {
+    const void* data, size_t stride, size_t count) {
     
     auto buffer = BufferUPtr(new Buffer());
-    if (!buffer->Init(bufferType, usage, data, dataSize))
+    // if (!buffer->Init(bufferType, usage, data, dataSize))
+    if (!buffer->Init(bufferType, usage, data, stride, count))
         return nullptr;
     return std::move(buffer);
 }
@@ -246,16 +286,21 @@ void Buffer::Bind() const {
 
 bool Buffer::Init(
     uint32_t bufferType, uint32_t usage,
-    const void* data, size_t dataSize) {
+    // const void* data, size_t dataSize) {
+    const void* data, size_t stride, size_t count) {
         
     m_bufferType = bufferType;
     m_usage = usage;
+
+    m_stride = stride;
+    m_count = count;
+
     glGenBuffers(1, &m_buffer);
     Bind();
-    glBufferData(m_bufferType, dataSize, data, usage);
+    // glBufferData(m_bufferType, dataSize, data, usage);
+    glBufferData(m_bufferType, m_stride * m_count, data, usage);
     return true;
 }
-
 
 
 CLASS_PTR(VertexLayout)
@@ -308,6 +353,12 @@ void VertexLayout::Init() {
     glGenVertexArrays(1, &m_vertexArrayObject);
     Bind();
 }
+
+
+
+
+
+
 
 
 CLASS_PTR(Image)
@@ -477,6 +528,116 @@ void Texture::SetTextureFromImage(const Image* image) {
 
 
 
+CLASS_PTR(Mesh);
+class Mesh {
+public:
+    static MeshUPtr Create( const std::vector<Vertex>& vertices,
+        const std::vector<uint32_t>& indices, uint32_t primitiveType);
+    static MeshUPtr CreateBox();
+
+    const VertexLayout* GetVertexLayout() const { return m_vertexLayout.get(); }
+    BufferPtr GetVertexBuffer() const { return m_vertexBuffer; }
+    BufferPtr GetIndexBuffer() const { return m_indexBuffer; }
+
+    // void SetMaterial(MaterialPtr material) { m_material = material; }
+    // MaterialPtr GetMaterial() const { return m_material; }
+
+    void Draw() const;
+    // void Draw(const Program* program) const;
+
+private:
+    Mesh() {}
+    void Init( const std::vector<Vertex>& vertices,
+        const std::vector<uint32_t>& indices, uint32_t primitiveType);
+
+    uint32_t m_primitiveType { GL_TRIANGLES };
+
+    VertexLayoutUPtr m_vertexLayout;
+    BufferPtr m_vertexBuffer;
+    BufferPtr m_indexBuffer;
+    
+    // MaterialPtr m_material;
+};
+
+MeshUPtr Mesh::CreateBox() {
+    std::vector<Vertex> vertices = {
+        Vertex { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec2(0.0f, 0.0f) },
+        Vertex { glm::vec3( 0.5f, -0.5f, -0.5f), glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec2(1.0f, 0.0f) },
+        Vertex { glm::vec3( 0.5f,  0.5f, -0.5f), glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec2(1.0f, 1.0f) },
+        Vertex { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec2(0.0f, 1.0f) },
+
+        Vertex { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec2(0.0f, 0.0f) },
+        Vertex { glm::vec3( 0.5f, -0.5f,  0.5f), glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec2(1.0f, 0.0f) },
+        Vertex { glm::vec3( 0.5f,  0.5f,  0.5f), glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec2(1.0f, 1.0f) },
+        Vertex { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec2(0.0f, 1.0f) },
+
+        Vertex { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec2(1.0f, 0.0f) },
+        Vertex { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec2(1.0f, 1.0f) },
+        Vertex { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec2(0.0f, 1.0f) },
+        Vertex { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec2(0.0f, 0.0f) },
+
+        Vertex { glm::vec3( 0.5f,  0.5f,  0.5f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec2(1.0f, 0.0f) },
+        Vertex { glm::vec3( 0.5f,  0.5f, -0.5f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec2(1.0f, 1.0f) },
+        Vertex { glm::vec3( 0.5f, -0.5f, -0.5f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec2(0.0f, 1.0f) },
+        Vertex { glm::vec3( 0.5f, -0.5f,  0.5f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec2(0.0f, 0.0f) },
+
+        Vertex { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec2(0.0f, 1.0f) },
+        Vertex { glm::vec3( 0.5f, -0.5f, -0.5f), glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec2(1.0f, 1.0f) },
+        Vertex { glm::vec3( 0.5f, -0.5f,  0.5f), glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec2(1.0f, 0.0f) },
+        Vertex { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec2(0.0f, 0.0f) },
+
+        Vertex { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec2(0.0f, 1.0f) },
+        Vertex { glm::vec3( 0.5f,  0.5f, -0.5f), glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec2(1.0f, 1.0f) },
+        Vertex { glm::vec3( 0.5f,  0.5f,  0.5f), glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec2(1.0f, 0.0f) },
+        Vertex { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec2(0.0f, 0.0f) },
+    };
+
+    std::vector<uint32_t> indices = {
+         0,  2,  1,  2,  0,  3,
+         4,  5,  6,  6,  7,  4,
+         8,  9, 10, 10, 11,  8,
+        12, 14, 13, 14, 12, 15,
+        16, 17, 18, 18, 19, 16,
+        20, 22, 21, 22, 20, 23,
+    };
+
+    return Create(vertices, indices, GL_TRIANGLES);
+}
+
+MeshUPtr Mesh::Create( const std::vector<Vertex>& vertices,
+    const std::vector<uint32_t>& indices, uint32_t primitiveType) { 
+
+    auto mesh = MeshUPtr(new Mesh());
+    mesh->Init(vertices, indices, primitiveType);
+    return std::move(mesh);
+}
+
+void Mesh::Init( const std::vector<Vertex>& vertices,
+    const std::vector<uint32_t>& indices, uint32_t primitiveType) {
+
+    m_vertexLayout = VertexLayout::Create();
+    m_vertexBuffer = Buffer::CreateWithData( GL_ARRAY_BUFFER, GL_STATIC_DRAW,
+        vertices.data(), sizeof(Vertex), vertices.size());
+    m_indexBuffer = Buffer::CreateWithData( GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW,
+        indices.data(), sizeof(uint32_t), indices.size());
+
+    m_vertexLayout->SetAttrib(0, 3, GL_FLOAT, false, sizeof(Vertex), 0);
+    m_vertexLayout->SetAttrib(1, 3, GL_FLOAT, false, sizeof(Vertex), 
+        offsetof(Vertex, normal));
+    m_vertexLayout->SetAttrib(2, 2, GL_FLOAT, false, sizeof(Vertex), 
+        offsetof(Vertex, texCoord));
+}
+
+void Mesh::Draw() const {
+    m_vertexLayout->Bind();
+    // if (m_material) {
+    //     m_material->SetToProgram(program);
+    // }
+    glDrawElements(m_primitiveType, m_indexBuffer->GetCount(), GL_UNSIGNED_INT, 0);
+}
+
+
+
 CLASS_PTR(Context)
 class Context {
 public:
@@ -493,6 +654,10 @@ private:
     bool Init();
 
     ProgramUPtr m_program;
+    ProgramUPtr m_simpleProgram;
+
+    MeshUPtr m_box;
+    // ModelUPtr m_model;
 
     int m_width {WINDOW_WIDTH};
     int m_height {WINDOW_HEIGHT};
@@ -504,9 +669,9 @@ private:
     // clear color
     glm::vec4 m_clearColor { glm::vec4(0.1f, 0.2f, 0.3f, 0.0f) };
 
-    VertexLayoutUPtr m_vertexLayout;
-    BufferUPtr m_vertexBuffer;
-    BufferUPtr m_indexBuffer;
+    // VertexLayoutUPtr m_vertexLayout;
+    // BufferUPtr m_vertexBuffer;
+    // BufferUPtr m_indexBuffer;
 
     // uint32_t m_texture;
     TextureUPtr m_texture;
@@ -523,14 +688,15 @@ private:
     float m_cameraYaw { 0.0f };
 
     glm::vec3 m_cameraFront { glm::vec3(0.0f, 0.0f, -1.0f) };
-    glm::vec3 m_cameraPos { glm::vec3(0.0f, 0.0f, 10.0f) };
+    glm::vec3 m_cameraPos { glm::vec3(0.0f, 0.0f, 7.0f) };
     glm::vec3 m_cameraUp { glm::vec3(0.0f, 1.0f, 0.0f) };
 
     // light parameter
     struct Light {
         glm::vec3 position { glm::vec3(2.0f, 2.0f, 2.0f) };
-        glm::vec3 direction { glm::vec3(-1.0f, -1.0f, -1.0f) };
+        glm::vec3 direction { glm::vec3(-0.2f, -1.0f, -0.3f) };
         glm::vec2 cutoff { glm::vec2(20.0f, 5.0f) };
+        // float cutoff { 20.0f };
         float distance { 32.0f };
         glm::vec3 ambient { glm::vec3(0.1f, 0.1f, 0.1f) };
         glm::vec3 diffuse { glm::vec3(0.8f, 0.8f, 0.8f) };
@@ -552,9 +718,11 @@ private:
         // glm::vec3 direction { glm::vec3(-1.0f, -1.0f, -1.0f) };
         // glm::vec2 cutoff { glm::vec2(20.0f, 5.0f) };
         // float distance { 32.0f };
-        glm::vec3 ambient { glm::vec3(0.1f, 0.5f, 0.3f) };
-        glm::vec3 diffuse { glm::vec3(0.8f, 0.5f, 0.3f) };
-        glm::vec3 specular { glm::vec3(0.5f, 0.5f, 0.5f) };
+        TextureUPtr diffuse;
+        TextureUPtr specular;
+        // glm::vec3 ambient { glm::vec3(0.1f, 0.5f, 0.3f) };
+        // glm::vec3 diffuse { glm::vec3(0.8f, 0.5f, 0.3f) };
+        // glm::vec3 specular { glm::vec3(0.5f, 0.5f, 0.5f) };
         float shininess { 32.0f };
     };
     Material m_material;
@@ -666,23 +834,20 @@ void Context::Render() {
 
         if (ImGui::CollapsingHeader("light", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::DragFloat3("l.position", glm::value_ptr(m_light.position), 0.01f);
-            // ImGui::DragFloat3("l.direction", glm::value_ptr(m_light.direction), 0.01f);
-            // ImGui::DragFloat2("l.cutoff", glm::value_ptr(m_light.cutoff), 0.1f, 0.0f, 180.0f);
-            // ImGui::DragFloat("l.distance", &m_light.distance, 0.1f, 0.0f, 1000.0f);
+            ImGui::DragFloat3("l.direction", glm::value_ptr(m_light.direction), 0.01f);
+            // ImGui::DragFloat2("l.cutoff", &m_light.cutoff, 0.1f, 0.0f, 180.0f);
+            ImGui::DragFloat2("l.cutoff", glm::value_ptr(m_light.cutoff), 0.1f, 0.0f, 180.0f);
+            ImGui::DragFloat("l.distance", &m_light.distance, 0.5f, 0.0f, 1000.0f);
             ImGui::ColorEdit3("l.ambient", glm::value_ptr(m_light.ambient));
             ImGui::ColorEdit3("l.diffuse", glm::value_ptr(m_light.diffuse));
             ImGui::ColorEdit3("l.specular", glm::value_ptr(m_light.specular));
         }
 
         // material
-        // if (ImGui::CollapsingHeader("material", ImGuiTreeNodeFlags_DefaultOpen)) {
-        //     ImGui::DragFloat("m.shininess", &m_material.shininess, 1.0f, 1.0f, 256.0f);
-        // }
-
         if (ImGui::CollapsingHeader("material", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::ColorEdit3("m.ambient", glm::value_ptr(m_light.ambient));
-            ImGui::ColorEdit3("m.diffuse", glm::value_ptr(m_light.diffuse));
-            ImGui::ColorEdit3("m.specular", glm::value_ptr(m_light.specular));
+            // ImGui::ColorEdit3("m.ambient", glm::value_ptr(m_light.ambient));
+            // ImGui::ColorEdit3("m.diffuse", glm::value_ptr(m_light.diffuse));
+            // ImGui::ColorEdit3("m.specular", glm::value_ptr(m_light.specular));
             ImGui::DragFloat("m.shininess", &m_material.shininess, 1.0f, 1.0f, 256.0f);
         }
     }
@@ -695,15 +860,15 @@ void Context::Render() {
 
     std::vector<glm::vec3> cubePositions = {
         glm::vec3( 0.0f, 0.0f, 0.0f),
-        // glm::vec3( 2.0f, 5.0f, -15.0f),
-        // glm::vec3(-1.5f, -2.2f, -2.5f),
-        // glm::vec3(-3.8f, -2.0f, -12.3f),
-        // glm::vec3( 2.4f, -0.4f, -3.5f),
-        // glm::vec3(-1.7f, 3.0f, -7.5f),
-        // glm::vec3( 1.3f, -2.0f, -2.5f),
-        // glm::vec3( 1.5f, 2.0f, -2.5f),
-        // glm::vec3( 1.5f, 0.2f, -1.5f),
-        // glm::vec3(-1.3f, 1.0f, -1.5f),
+        glm::vec3( 2.0f, 5.0f, -15.0f),
+        glm::vec3(-1.5f, -2.2f, -2.5f),
+        glm::vec3(-3.8f, -2.0f, -12.3f),
+        glm::vec3( 2.4f, -0.4f, -3.5f),
+        glm::vec3(-1.7f, 3.0f, -7.5f),
+        glm::vec3( 1.3f, -2.0f, -2.5f),
+        glm::vec3( 1.5f, 2.0f, -2.5f),
+        glm::vec3( 1.5f, 0.2f, -1.5f),
+        glm::vec3(-1.3f, 1.0f, -1.5f),
     };
 
     m_program->Use();
@@ -724,29 +889,34 @@ void Context::Render() {
         // (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT, 0.01f, 10.0f);
         (float)m_width / (float)m_height, 0.01f, 20.0f);
     // auto view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
-    auto model = glm::rotate(glm::mat4(1.0f), glm::radians((float)glfwGetTime() * 60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    // auto model = glm::rotate(glm::mat4(1.0f), glm::radians((float)glfwGetTime() * 60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    auto model = glm::rotate(glm::mat4(1.0f), glm::radians(60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
     auto transform = projection * view * model;
     m_program->SetUniform("transform", transform);
 
-    // drawing a light emmiting object - 
+    // drawing a light emmiting object - didn;;t show -- fix it
     auto lightModelTransform = glm::translate(glm::mat4(1.0), m_lightPos) *
-        glm::scale(glm::mat4(1.0), glm::vec3(0.3f));
+        glm::scale(glm::mat4(1.0), glm::vec3(0.1f));
         
     m_program->Use();
     // m_program->SetUniform("lightPos", m_lightPos);
     // m_program->SetUniform("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
     // m_program->SetUniform("objectColor", glm::vec3(1.0f, 1.0f, 1.0f));
     // m_program->SetUniform("ambientStrenght", 1.0f);
+/*    
     m_program->SetUniform("light.position", m_light.position);
     m_program->SetUniform("light.ambient", glm::vec3(1.0f));
     m_program->SetUniform("material.ambient", glm::vec3(1.0f));
 
     m_program->SetUniform("transform", projection * view * lightModelTransform);
     m_program->SetUniform("modelTransform", lightModelTransform);
+*/    
+    m_simpleProgram->SetUniform("color", glm::vec4(m_light.ambient + m_light.diffuse, 1.0f));
+    m_simpleProgram->SetUniform("transform", projection * view * lightModelTransform);
     
-    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
-
+    // glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+    m_box->Draw();
 
     m_program->Use();
     m_program->SetUniform("viewPos", m_cameraPos);
@@ -758,15 +928,28 @@ void Context::Render() {
     // m_program->SetUniform("specularShininess", m_specularShininess);
 
     m_program->SetUniform("light.position", m_light.position);
+    m_program->SetUniform("light.attenuation", GetAttenuationCoeff(m_light.distance));
+    // m_program->SetUniform("light.direction", m_light.direction);
     m_program->SetUniform("light.direction", m_light.direction);
+    // m_program->SetUniform("light.cutoff", cosf(glm::radians(m_light.cutoff)));
+    m_program->SetUniform("light.cutoff", glm::vec2(
+        cosf(glm::radians(m_light.cutoff[0])),
+        cosf(glm::radians(m_light.cutoff[0] + m_light.cutoff[1]))));
     m_program->SetUniform("light.ambient", m_light.ambient);
     m_program->SetUniform("light.diffuse", m_light.diffuse);
     m_program->SetUniform("light.specular", m_light.specular);
 
-    m_program->SetUniform("material.ambient", m_material.ambient);
-    m_program->SetUniform("material.diffuse", m_material.diffuse);
-    m_program->SetUniform("material.specular", m_material.specular);
+    // m_program->SetUniform("material.ambient", m_material.ambient);
+    // m_program->SetUniform("material.diffuse", m_material.diffuse);
+    m_program->SetUniform("material.diffuse", 0);   // slut number 0
+    // m_program->SetUniform("material.specular", m_material.specular);
+    m_program->SetUniform("material.specular", 1);
     m_program->SetUniform("material.shininess", m_material.shininess);
+
+    glActiveTexture(GL_TEXTURE0);
+    m_material.diffuse->Bind();
+    glActiveTexture(GL_TEXTURE1);
+    m_material.specular->Bind();
 
 
     for (size_t i = 0; i < cubePositions.size(); i++){
@@ -780,60 +963,23 @@ void Context::Render() {
         m_program->SetUniform("transform", transform);
         m_program->SetUniform("modelTransform", model);
         
-        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        // glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        m_box->Draw();
     }
 
 
-    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+    // glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 
 }
 
 bool Context::Init() {
 
-    // glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glClearColor(m_clearColor.r, m_clearColor.g, m_clearColor.b, m_clearColor.a);
 
+    m_box = Mesh::CreateBox();
 
-    float vertices[] = {    // pos.xyz, normal.xyz, texcoord.uv
-        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 1.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 1.0f, 1.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 0.0f, 1.0f,
-
-        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 1.0f, 1.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 0.0f, 1.0f,
-
-        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f, 1.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, 0.0f, 1.0f,
-        -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f, 0.0f, 0.0f,
-
-         0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, 1.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f, 1.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, 0.0f, 1.0f,
-         0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f, 0.0f, 0.0f,
-
-        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, 0.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, 1.0f, 1.0f,
-         0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, 0.0f, 0.0f,
-
-        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, 0.0f, 1.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, 1.0f, 1.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, 0.0f, 0.0f,
-    };
-
-    uint32_t indices[] = {
-         0,  2,  1,  2,  0,  3,
-         4,  5,  6,  6,  7,  4,
-         8,  9, 10, 10, 11,  8,
-        12, 14, 13, 14, 12, 15,
-        16, 17, 18, 18, 19, 16,
-        20, 22, 21, 22, 20, 23,
-    };
-
+/*
     m_vertexLayout = VertexLayout::Create();
     m_vertexBuffer = Buffer::CreateWithData(GL_ARRAY_BUFFER, GL_STATIC_DRAW,
         // vertices, sizeof(float) * 32);
@@ -850,22 +996,36 @@ bool Context::Init() {
    
     m_indexBuffer = Buffer::CreateWithData(GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW,
         // indices, sizeof(uint32_t) * 6);
-        indices, sizeof(uint32_t) * 36);
+        // indices, sizeof(uint32_t) * 36);
+*/ 
 
-    ShaderPtr vertShader = Shader::CreateFromFile("./shader/lighting-1.vs", GL_VERTEX_SHADER);
-    ShaderPtr fragShader = Shader::CreateFromFile("./shader/lighting-1b.fs", GL_FRAGMENT_SHADER);
-    if (!vertShader || !fragShader)
+    // shader loading
+    // ShaderPtr vertShader = Shader::CreateFromFile("./shader/lighting-1.vs", GL_VERTEX_SHADER);
+    // ShaderPtr fragShader = Shader::CreateFromFile("./shader/lighting-1.fs", GL_FRAGMENT_SHADER);
+    // if (!vertShader || !fragShader)
+    //     return false;
+    // SPDLOG_INFO("vertex shader id: {}", vertShader->Get());
+    // SPDLOG_INFO("fragment shader id: {}", fragShader->Get());
+
+    // m_program = Program::Create({fragShader, vertShader});
+    // if (!m_program)
+    //     return false;
+    // SPDLOG_INFO("program id: {}", m_program->Get());
+
+    m_simpleProgram = Program::Create("./shader/simple.vs", "./shader/simple.fs");
+    if (!m_simpleProgram)
         return false;
-    SPDLOG_INFO("vertex shader id: {}", vertShader->Get());
-    SPDLOG_INFO("fragment shader id: {}", fragShader->Get());
+    SPDLOG_INFO("simple program id: {}", m_simpleProgram->Get());    
 
-    m_program = Program::Create({fragShader, vertShader});
+    // m_program = Program::Create("./shader/lighting-1.vs", "./shader/lighting-1.fs");
+    m_program = Program::Create("./shader/lighting-3.vs", "./shader/lighting-3.fs");
     if (!m_program)
         return false;
-    SPDLOG_INFO("program id: {}", m_program->Get());
+    SPDLOG_INFO("program id: {}", m_program->Get());  
 
     glClearColor(0.1f, 0.2f, 0.3f, 0.0f);
 
+   
 
     // auto image = Image::Load("./image/body.png");
     // if (!image) 
@@ -877,10 +1037,14 @@ bool Context::Init() {
     image->SetCheckImage(64, 64);
 
     m_texture = Texture::CreateFromImage(image.get());
-
+    // m_material.specular = Texture::CreateFromImage(image.get());
   
-    auto image2 = Image::Load("./image/face-4.jpg");
+    auto image2 = Image::Load("./image/face-3.jpg");
     m_texture2 = Texture::CreateFromImage(image2.get());
+
+    m_material.diffuse = Texture::CreateFromImage(Image::Load("./image/face-4.jpg").get());
+    // m_material.specular = Texture::CreateFromImage(Image::Load("./image/metal_sp.png").get());
+    m_material.specular = Texture::CreateFromImage(image.get());
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_texture->Get());

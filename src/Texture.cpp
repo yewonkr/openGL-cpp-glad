@@ -518,9 +518,7 @@ bool Context::Init() {
         GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW,
         indices, sizeof(uint32_t) * 6);
 
-    // ShaderPtr vertShader = Shader::CreateFromFile("./shader/simple.vs", GL_VERTEX_SHADER);
-    // ShaderPtr fragShader = Shader::CreateFromFile("./shader/simple.fs", GL_FRAGMENT_SHADER);
-
+    
     ShaderPtr vertShader = Shader::CreateFromFile("./shader/texture.vs", GL_VERTEX_SHADER);
     ShaderPtr fragShader = Shader::CreateFromFile("./shader/texture.fs", GL_FRAGMENT_SHADER);
     if (!vertShader || !fragShader)
@@ -538,7 +536,7 @@ bool Context::Init() {
     // checker image as texture
     // m_texture = Texture::CreateFromImage(image.get());
 
-    auto image = Image::Load("./image/container.jpg");
+    auto image = Image::Load("./image/face-4.jpg");
     if (!image) 
         return false;
     SPDLOG_INFO("image: {}x{}, {} channels",
