@@ -96,7 +96,7 @@ void main() {
     //     vec3 specular = spec * specColor * light.specular;
 
     //     // result += (diffuse + specular) ;
-    //     result += (diffuse + specular) + intensity;
+    //     result += (diffuse + specular) * intensity;
     // }
 
     // result *= attenuation;
