@@ -14,11 +14,16 @@ project(${PROJECT_NAME})
 add_executable(${PROJECT_NAME} 
     # src/main.cpp
     # src/RotatingCube.cpp
-    # src/Object-2.cpp
+    src/Light-1.cpp
+    # src/Object-1.cpp
     # src/ImGui.cpp
-    # src/Texture.cpp
+    # src/KeyboardInputReshape.cpp
+    # src/MouseControl.cpp
+    # src/ProjrctionView.cpp
+    # src/Texture3.cpp
+    # src/Transform.cpp
     # src/ColoredTriangle.cpp
-    src/drawSinglePoint.cpp
+    # src/drawSinglePoint.cpp
     # src/basicWindow.cpp
 )
 
